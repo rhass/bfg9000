@@ -21,16 +21,20 @@ ST7036 lcd = ST7036 ( 2, 20, 0x78 );
 #define ONBOARD_LED   13
 #define TRIGGER_INPUT 10
 #define SAFETY_INPUT  2
+#define VDIV_INPUT    A0
 #define TRIGGER_RELAY 8
 #define PUMP_RELAY    12
 // Tank pressure settings -- the pump cannot output more than 20 PSI.
-#define MIN_TANK_PSI  10.0
+#define MIN_TANK_PSI  5.0
 #define MAX_TANK_PSI  20.0
+#define MAX_BATT      280.0 // Calibrated to 8.5v using a 10k/1.2k voltage divider.
+#define MIN_BATT      216.0 // Calibrated to 6.5v using a 10k/1.2k voltage divider.
 
 void setup() {
-  pinMode(ONBOARD_LED, OUTPUT);
   pinMode(TRIGGER_INPUT, INPUT);
   pinMode(SAFETY_INPUT, INPUT);
+  pinMode(VDIV_INPUT, INPUT);
+  pinMode(ONBOARD_LED, OUTPUT);
   pinMode(PUMP_RELAY, OUTPUT);
   pinMode(TRIGGER_RELAY, OUTPUT);
   
@@ -47,7 +51,7 @@ void fire() {
   if ( safety_engaged() == false ) {
     Serial.println("FIRE!!!");
     digitalWrite(TRIGGER_RELAY, HIGH);
-    delay(25);
+    delay(250);
     digitalWrite(TRIGGER_RELAY, LOW);
   } else {
     Serial.println("Safety Engaged....");
@@ -84,7 +88,7 @@ float currentPsi() {
     float gpsi = psi - 14.7;
     char p_str[10];
     dtostrf(gpsi, 2, 2, p_str);
-    Serial.print("Current PSI: ");
+    Serial.print(F("Current PSI: "));
     Serial.println(p_str);
     return gpsi;
   }
@@ -106,15 +110,22 @@ boolean safety_engaged() {
     return true;
   }
   boolean safety = digitalRead(SAFETY_INPUT);
-  Serial.print("Safety Pin Status: ");
+  Serial.print(F("Safety Pin Status: "));
   Serial.println(safety, DEC);
   return safety;
 }
 
 void energize_pump(boolean power) {
-  Serial.print("Pump Relay Status: ");
+  Serial.print(F("Pump Relay Status: "));
   Serial.println(power, DEC);
   digitalWrite(PUMP_RELAY, power);
+}
+
+int batteryAvailable() {
+  int Vin = analogRead(VDIV_INPUT);
+  Serial.println((MAX_BATT - Vin));
+  int percentAvailable = (Vin / MAX_BATT) * 100;
+  return percentAvailable;
 }
 
 void loop() {
@@ -135,25 +146,41 @@ void loop() {
  
   // Store the current PSI for use in the loop.
   float cpsi = currentPsi();
-  
+
   lcd.setCursor(1,0);
+  lcd.print("PWR: ");
+  lcd.setCursor(1,5);
+  lcd.print(batteryAvailable());
+  lcd.setCursor(1,7);
+  lcd.print("%");
+  
+  lcd.setCursor(1,9);
   lcd.print("PSI: ");
-  lcd.setCursor(1,6); 
+  lcd.setCursor(1,15); 
   lcd.print(cpsi);
-   
+  
+  /*   
   lcd.setCursor(1,12);
   lcd.print("Pump:");
+  */
   // Turn the pump on when the storage tank pressure drops below the defined PSI.
   if ( cpsi < MIN_TANK_PSI ) {
     energize_pump(true);    
-    lcd.print("ON");
+    //lcd.print("ON");
     // Turn the pump off when the pump meets or exceeds the defined PSI.
   } 
   else if ( cpsi >= MAX_TANK_PSI ) {
     energize_pump(false);
-    lcd.print("OFF");
+    //lcd.print("OFF");
   }
- 
+
+  // This is yet another hack to temporarily ensure the LCD refresh rate is reasonable.
+  // With the the way the code is currently written, the LCD is cleared on each iteration
+  // of the main() loop. The result is the refresh is too fast to see most of the 
+  // information desired. While shorter refresh times are usable, the LCD flicker is
+  // very noticable. This also has the extremely undesireable side-effect of adding a
+  // up to a 500ms firing delay, which totally sucks. This was only done to get things
+  // working quickly.
   delay(500);
 }  
 
